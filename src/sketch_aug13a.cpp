@@ -41,13 +41,13 @@ float timePassed = 0;
 #define MEAS_TIME_INC 100.0
 
 // PID controller
-float desiredSpeedL = 3; // m/s
-float desiredSpeedR = 3; // m/s
+float desiredSpeedL = 0; // m/s
+float desiredSpeedR = 0; // m/s
 float pwmL = 0;
 float pwmR = 0;
 
 // PID terms
-float KpL = 15, KiL = 0, KdL = 0;
+float KpL = 13, KiL = 0, KdL = 0;
 float KpR = 15, KiR = 0, KdR = 0;
 float errorL = 0, errorR = 0;
 float derivL = 0, derivR = 0;
@@ -66,6 +66,10 @@ unsigned long step_duration = 10000; // Step duration in ms (10 seconds)
 bool step_applied = false;
 
 void setup() {
+
+  Serial.begin(9600); // must match Jetson's baud rate
+  while (!Serial);    // wait for serial to be ready (needed for some boards)
+
   // Set up motor outputs
   pinMode(enAR, OUTPUT);
   pinMode(enBL, OUTPUT);
@@ -86,19 +90,19 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(speedPinL), addCountL, RISING);
 
   // Enable serial output
-  Serial.begin(9600);
+  //Serial.begin(9600);
 
   // Initialize plotting
   start_time = millis();
   step_start_time = millis();
   
   // Print CSV header for plant estimation or plotting
-  if (plant_estimation_mode) {
+  /*if (plant_estimation_mode) {
     Serial.println("Time(s),PWM_Left,PWM_Right,LeftSpeed(m/s),RightSpeed(m/s),StepApplied");
   } else if (plotting_mode) {
     Serial.println("Time(s),LeftSpeed(m/s),RightSpeed(m/s),DesiredSpeed(m/s)");
   }
-
+  */
   // testing
   forwardL();
   forwardR();
@@ -108,6 +112,32 @@ void setup() {
 }
 
 void loop() {
+
+  if (Serial.available() > 0) {
+    String msg = Serial.readStringUntil('\n');
+    msg.trim(); // Remove any whitespace/newline characters
+    
+    // Find the comma delimiter
+    int commaIndex = msg.indexOf(',');
+    
+    if (commaIndex > 0) {
+      // Split the message into two parts
+      String leftSpeedStr = msg.substring(0, commaIndex);
+      String rightSpeedStr = msg.substring(commaIndex + 1);
+      
+      // Convert to float and assign to desired speeds
+      desiredSpeedL = leftSpeedStr.toFloat()*2;
+      desiredSpeedR = rightSpeedStr.toFloat()*2;
+      
+      // Optional: Send confirmation back to Jetson
+      Serial.print("ACK:");
+      Serial.print(desiredSpeedL, 3);
+      Serial.print(",");
+      Serial.println(desiredSpeedR, 3);
+    }
+  }
+
+
   currentTime = millis();
 
   timePassed = currentTime - prevTime;
@@ -148,11 +178,11 @@ void loop() {
       analogWrite(enBL, pwmL); // Left motor
       
       // Choose output format
-      if (plotting_mode) {
+      /*if (plotting_mode) {
         plotSpeeds();
       } else {
         printSpeeds();
-      }
+      }*/
     }
   }
 }

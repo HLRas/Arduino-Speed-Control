@@ -47,8 +47,8 @@ float pwmL = 0;
 float pwmR = 0;
 
 // PID terms
-float KpL = 13, KiL = 0, KdL = 0;
-float KpR = 15, KiR = 0, KdR = 0;
+const float KpL = 13, KiL = 0, KdL = 0;
+const float KpR = 15, KiR = 0, KdR = 0;
 float errorL = 0, errorR = 0;
 float derivL = 0, derivR = 0;
 float integralL = 0, integralR = 0;

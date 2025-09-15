@@ -11,6 +11,8 @@ void reverseR();
 void addCountL();
 void addCountR();
 void printSpeeds();
+void runComms();
+void adjustDirection();
 
 // Reference to where motor is, look from back to front of car
 // Right motor
@@ -62,14 +64,18 @@ float derivL = 0, derivR = 0;
 float integralL = 0, integralR = 0;
 float prevErrorL = 0, prevErrorR = 0;
 
+// Comms
+bool echoSpeeds = true ;
+
 void setup(){
     Serial.begin(9600); // must match Jetson's baud rate
-    //while (!Serial);    // wait for serial to be ready (needed for some boards)
-    Serial.println("Time,PWM_Left,PWM_Right,LeftSpeed,RightSpeed,StepApplied");
+    while (!Serial);    // wait for serial to be ready (needed for some boards)
+    //Serial.println("Time,PWM_Left,PWM_Right,LeftSpeed,RightSpeed,StepApplied");
     
     // Initialize timing
     start_time = millis();
     step_start_time = millis();
+
     // Set up motor outputs
     pinMode(enAR, OUTPUT);
     pinMode(enBL, OUTPUT);
@@ -95,6 +101,8 @@ void setup(){
 }
 
 void loop(){
+    runComms();
+    adjustDirection();
     currentTime = millis();
 
     timePassed = currentTime - prevTime;
@@ -134,10 +142,22 @@ void loop(){
             analogWrite(enAR, pwmR); // Right motor
             analogWrite(enBL, pwmL); // Left motor
 
-            //printSpeeds();
+            if (echoSpeeds){
+                Serial.print("ACK:");
+                Serial.print(desiredSpeedL, 3);
+                Serial.print(",");
+                Serial.println(desiredSpeedR, 3);
+            }
+            
         }
 
     }
+}
+
+// Change motor direction according to desired speed
+void adjustDirection(){
+    if (desiredSpeedL < 0){reverseL();} else {forwardL();};
+    if (desiredSpeedR < 0){reverseR();} else {forwardR();};
 }
 
 // Turn off motor
@@ -154,6 +174,34 @@ void turnOff(int whichMotor) {
   }
 }
 
+// Run communication protocol
+void runComms(){
+    if (Serial.available() > 0) {
+    String msg = Serial.readStringUntil('\n');
+    msg.trim(); // Remove any whitespace/newline characters
+    
+    // Find the comma delimiter
+    int commaIndex = msg.indexOf(',');
+    
+    if (commaIndex > 0) {
+      // Split the message into two parts
+      String leftSpeedStr = msg.substring(0, commaIndex);
+      String rightSpeedStr = msg.substring(commaIndex + 1);
+      
+      // Convert to float and assign to desired speeds
+      desiredSpeedL = leftSpeedStr.toFloat()*2;
+      desiredSpeedR = rightSpeedStr.toFloat()*2;
+      
+      // Optional: Send confirmation back to Jetson
+      Serial.print("ACK:");
+      Serial.print(desiredSpeedL, 3);
+      Serial.print(",");
+      Serial.println(desiredSpeedR, 3);
+    }
+  }
+}
+
+// Print the speeds (This is for the local terminal only!)
 void printSpeeds(){
     Serial.print(currentTime);
     Serial.print(",");
@@ -162,6 +210,7 @@ void printSpeeds(){
     Serial.println(speedR);
 }
 
+// Estimating the plant (Didn't really use this)
 void plantEstimation(){
   float elapsed_time = (currentTime - start_time) / 1000.0;
   

@@ -53,13 +53,13 @@ unsigned long step_duration = 10000; // 10 seconds in milliseconds
 bool step_applied = false;
 float step_input_pwm = 400;
 
-// pwm inputs (small initial value to prevent integral windup)
-int pwmL = 80;
-int pwmR = 80;
+// pwm inputs
+int pwmL = 0;
+int pwmR = 0;
 
 // PID controller
-float desiredSpeedL = 0.3; // m/s
-float desiredSpeedR = 0.3; // m/s
+float desiredSpeedL = 0; // m/s
+float desiredSpeedR = 0; // m/s
 
 // PID terms
 const float KpL = 10, KiL = 0, KdL = 0; // 200ms ts
@@ -74,7 +74,7 @@ float integralL = 0, integralR = 0;
 float prevErrorL = 0, prevErrorR = 0;
 
 // Comms
-bool echoSpeeds = false ;
+bool echoSpeeds = true ;
 
 // Straight pwm input for testing
 bool straight = false ;
@@ -116,7 +116,7 @@ void setup(){
 }
 
 void loop(){
-    //runComms();
+    runComms();
     adjustDirection();
     if (!straight){ // If not taking a straight pwm input
       currentTime = millis();
@@ -156,10 +156,14 @@ void loop(){
               applyPWMs();
               
               if (echoSpeeds){
-                  Serial.print("ACK:");
+                  Serial.print("ACK: ");
                   Serial.print(desiredSpeedL, 3);
-                  Serial.print(",");
-                  Serial.println(desiredSpeedR, 3);
+                  Serial.print("|");
+                  Serial.print(speedL, 3);
+                  Serial.print(", ");
+                  Serial.print(desiredSpeedR, 3);
+                  Serial.print("|");
+                  Serial.println(speedR, 3);
               }else{
                 printSpeeds();
               }
@@ -174,7 +178,7 @@ void loop(){
 }
 
 // Change motor direction according to desired speed
-void adjustDirection(){ // This still needs work!
+void adjustDirection(){ // This still needs work! Sim never reverses so it is fine...
     if (desiredSpeedL < 0){reverseL();} else {forwardL();};
     if (desiredSpeedR < 0){reverseR();} else {forwardR();};
 }
@@ -273,8 +277,8 @@ void printPlantData(){
 
 void applyPWMs(bool constrain_pwm){
   if (constrain_pwm){
-    pwmL = constrain(pwmL, MIN_PWM, MAX_PWM);
-    pwmR = constrain(pwmR, MIN_PWM, MAX_PWM);
+    if (desiredSpeedL != 0){pwmL = constrain(pwmL, MIN_PWM, MAX_PWM);}else{pwmL = 0;}
+    if (desiredSpeedR != 0){pwmR = constrain(pwmR, MIN_PWM, MAX_PWM);}else{pwmR = 0;}
   }
   analogWrite(enAR, pwmR); // Right motor
   analogWrite(enBL, pwmL); // Left motor

@@ -1,5 +1,7 @@
 #include <Arduino.h>
 
+// Max speed for this car is roughly 0.5m/s on carpet
+
 void plotSpeeds();
 void plantEstimation();
 void printPlantData();
@@ -13,6 +15,7 @@ void addCountR();
 void printSpeeds();
 void runComms();
 void adjustDirection();
+void applyPWMs(bool constrain_pwm = true);
 
 // Reference to where motor is, look from back to front of car
 // Right motor
@@ -37,8 +40,10 @@ unsigned long prevTime = 0;
 float timePassed = 0;
 
 // Constants for measuring speed
-#define GAPS 30.0
+#define GAPS 60.0  // Rising and falling edge detection
 #define MEAS_TIME_INC 200.0
+#define MIN_PWM 80 // This allows for a nicer response
+#define MAX_PWM 255 // Max allowed pwm
 
 // Plant estimation
 bool estimate = false;
@@ -46,26 +51,33 @@ unsigned long start_time = 0;
 unsigned long step_start_time = 0;
 unsigned long step_duration = 10000; // 10 seconds in milliseconds
 bool step_applied = false;
-float step_input_pwm = 200;
+float step_input_pwm = 400;
 
-// pwm inputs
-int pwmL = 0;
-int pwmR = 0;
+// pwm inputs (small initial value to prevent integral windup)
+int pwmL = 80;
+int pwmR = 80;
 
 // PID controller
-float desiredSpeedL = 1.5; // m/s
-float desiredSpeedR = 1.5; // m/s
+float desiredSpeedL = 0.3; // m/s
+float desiredSpeedR = 0.3; // m/s
 
 // PID terms
-const float KpL = 12, KiL = 0.18, KdL = 0;
-const float KpR = 13, KiR = 0.28, KdR = 0;
+const float KpL = 10, KiL = 0, KdL = 0; // 200ms ts
+const float KpR = 10, KiR = 0, KdR = 0;
+
+//const float KpL = 10, KiL = 0, KdL = 0; // 100ms ts
+//const float KpR = 10, KiR = 0, KdR = 0;
+
 float errorL = 0, errorR = 0;
 float derivL = 0, derivR = 0;
 float integralL = 0, integralR = 0;
 float prevErrorL = 0, prevErrorR = 0;
 
 // Comms
-bool echoSpeeds = true ;
+bool echoSpeeds = false ;
+
+// Straight pwm input for testing
+bool straight = false ;
 
 void setup(){
     Serial.begin(9600); // must match Jetson's baud rate
@@ -92,70 +104,77 @@ void setup(){
     turnOff();
 
     // Attach interrupts
-    attachInterrupt(digitalPinToInterrupt(speedPinR), addCountR, RISING);
-    attachInterrupt(digitalPinToInterrupt(speedPinL), addCountL, RISING);
+    attachInterrupt(digitalPinToInterrupt(speedPinR), addCountR, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(speedPinL), addCountL, CHANGE);
 
     // Apply forward moving wheels
     forwardL();
     forwardR();
+
+    // Apply a starting pwm
+    applyPWMs();
 }
 
 void loop(){
-    runComms();
+    //runComms();
     adjustDirection();
-    currentTime = millis();
+    if (!straight){ // If not taking a straight pwm input
+      currentTime = millis();
 
-    timePassed = currentTime - prevTime;
+      timePassed = currentTime - prevTime;
 
-    if (timePassed >= MEAS_TIME_INC){
-        timePassed /= 1000.0;
-        prevTime = currentTime ;
-        speedL = countL / (GAPS * timePassed);
-        speedR = countR / (GAPS * timePassed);
-        countL = 0;
-        countR = 0;
+      if (timePassed >= MEAS_TIME_INC){
+          timePassed /= 1000.0;
+          prevTime = currentTime ;
+          speedL = countL / (GAPS * timePassed);
+          speedR = countR / (GAPS * timePassed);
+          countL = 0;
+          countR = 0;
 
-        // Plant estimation or PID control
-        if (estimate){
-            plantEstimation();
-        }else{
-            // PID Control mode
-            // Left wheel PID
-            errorL = desiredSpeedL - speedL;
-            integralL += errorL * (timePassed);
-            derivL = (errorL - prevErrorL) / (timePassed);
-            pwmL += KpL * errorL + KiL * integralL + KdL * derivL;
-            prevErrorL = errorL;
-
-            // Right wheel PID
-            errorR = desiredSpeedR - speedR;
-            integralR += errorR * (timePassed);
-            derivR = (errorR - prevErrorR) / (timePassed);
-            pwmR += KpR * errorR + KiR * integralR + KdR * derivR;
-            prevErrorR = errorR;
+          // Plant estimation or PID control
+          if (estimate){
+              plantEstimation();
+          }else{
+              // PID Control mode
+              // Left wheel PID
+              errorL = desiredSpeedL - speedL;
             
-            // Limit PWM range
-            pwmL = constrain(pwmL, 0, 255);
-            pwmR = constrain(pwmR, 0, 255);
+              integralL += errorL * (timePassed);
+              derivL = (errorL - prevErrorL) / (timePassed);
+              pwmL += KpL * errorL + KiL * integralL + KdL * derivL;
+              prevErrorL = errorL;
 
-            // Apply PWM
-            analogWrite(enAR, pwmR); // Right motor
-            analogWrite(enBL, pwmL); // Left motor
+              // Right wheel PID
+              errorR = desiredSpeedR - speedR;
+              
+              integralR += errorR * (timePassed);
+              derivR = (errorR - prevErrorR) / (timePassed);
+              pwmR += KpR * errorR + KiR * integralR + KdR * derivR;
+              prevErrorR = errorR;              
 
-            if (echoSpeeds){
-                Serial.print("ACK:");
-                Serial.print(desiredSpeedL, 3);
-                Serial.print(",");
-                Serial.println(desiredSpeedR, 3);
-            }
-            
-        }
+              // Apply PWM
+              applyPWMs();
+              
+              if (echoSpeeds){
+                  Serial.print("ACK:");
+                  Serial.print(desiredSpeedL, 3);
+                  Serial.print(",");
+                  Serial.println(desiredSpeedR, 3);
+              }else{
+                printSpeeds();
+              }
+              
+          }
 
+      }
+    }else{ // apply straight pwm input without constraining pwm
+      applyPWMs(false);
     }
+    
 }
 
 // Change motor direction according to desired speed
-void adjustDirection(){
+void adjustDirection(){ // This still needs work!
     if (desiredSpeedL < 0){reverseL();} else {forwardL();};
     if (desiredSpeedR < 0){reverseR();} else {forwardR();};
 }
@@ -250,6 +269,15 @@ void printPlantData(){
   Serial.print(speedR, 3); // Right speed (output)
   Serial.print(",");
   Serial.println(step_applied ? 1 : 0); // Step applied flag
+}
+
+void applyPWMs(bool constrain_pwm){
+  if (constrain_pwm){
+    pwmL = constrain(pwmL, MIN_PWM, MAX_PWM);
+    pwmR = constrain(pwmR, MIN_PWM, MAX_PWM);
+  }
+  analogWrite(enAR, pwmR); // Right motor
+  analogWrite(enBL, pwmL); // Left motor
 }
 
 // Increment speed counts

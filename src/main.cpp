@@ -214,12 +214,6 @@ void runComms(){
       // Convert to float and assign to desired speeds
       desiredSpeedL = leftSpeedStr.toFloat()*2;
       desiredSpeedR = rightSpeedStr.toFloat()*2;
-      
-      // Optional: Send confirmation back to Jetson
-      Serial.print("ACK:");
-      Serial.print(desiredSpeedL, 3);
-      Serial.print(",");
-      Serial.println(desiredSpeedR, 3);
     }
   }
 }
